@@ -1,0 +1,28 @@
+#!/bin/bash
+###########
+#Author:SIDDARTHA REDDY MADGULA
+#Date:26TH NOV 2024
+###########
+
+AMI_ID="ami-04a37924ffe27da53" 
+INSTANCE_TYPE="t2.micro"
+subnet_id="subnet-0720c76a00126bca7"
+vpc_id="vpc-08aaf7a4e487a880e"
+
+# Create Security Group
+SG_ID=$(aws ec2 create-security-group --group-name web-sg --description "Web server SG" --vpc-id $vpc_id --query "GroupId" --output text)
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 80 --cidr 0.0.0.0/0
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 22 --cidr 0.0.0.0/0
+echo "Configured Security Group: $SG_ID"
+
+# Launch EC2 Instance
+instance_id=$(aws ec2 run-instances --image-id $AMI_ID --count 1 --instance-type t2.micro --key-name devOps2 --security-group-ids $SG_ID --subnet-id $subnet_id --associate-public-ip-address
+  --query "Instances[0].InstanceId" --output text)
+echo "Launched EC2 Instance: $instance_id"
+
+# Attach Security Group to EC2 Instance
+aws ec2 modify-instance-attribute --instance-id $instance_id --groups $SG_ID
+
+#finding public ip address 
+public_ip=$(aws ec2 describe-instances --instance-ids $instance_id --query "Reservations[*].Instances[*].PublicIpAddress" --output text)
+echo "$public_ip"
