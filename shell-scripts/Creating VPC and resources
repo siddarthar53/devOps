@@ -1,0 +1,103 @@
+#!/bin/bash
+###########
+#Author:SIDDARTHA REDDY MADGULA
+#Date:26TH NOV 2024
+###########
+
+
+# Variables
+VPC_NAME="devOps-project"
+region="ap-south-1"
+vpc_cidr="10.0.0.0/16"
+public_cidr="10.0.1.0/24"
+private_cidr="10.0.2.0/24"
+  
+
+# Create VPC
+vpc_id=$(aws ec2 create-vpc --cidr-block $vpc_cidr --query "Vpc.VpcId" --output text)
+if [ -z "$vpc_id" ]; then
+  echo "Failed to create VPC"
+  exit 1
+fi
+echo "Created VPC: $vpc_id"
+
+# Tag the VPC
+aws ec2 create-tags --resources $vpc_id --tags Key=Name,Value=$VPC_NAME
+echo "Assigned Name '$VPC_NAME' to VPC: $vpc_id"
+
+# Create Public Subnet
+public_subnet_id=$(aws ec2 create-subnet --vpc-id $vpc_id --cidr-block $public_cidr --availability-zone "${region}a" --query "Subnet.SubnetId" --output text)
+echo "Created Public Subnet: $public_subnet_id"
+
+# Assign Name to Public Subnet
+aws ec2 create-tags --resources $public_subnet_id --tags Key=Name,Value="${VPC_NAME}-Public-Subnet"
+echo "Assigned Name '${VPC_NAME}-Public-Subnet' to Public Subnet: $public_subnet_id"
+
+# Create Private Subnet
+private_subnet_id=$(aws ec2 create-subnet --vpc-id $vpc_id --cidr-block $private_cidr --availability-zone "${region}a" --query "Subnet.SubnetId" --output text)
+echo "Created Private Subnet: $private_subnet_id"
+
+# Tag the Private Subnet
+aws ec2 create-tags --resources $private_subnet_id --tags Key=Name,Value="${VPC_NAME}-Private-Subnet"
+echo "Assigned Name '${VPC_NAME}-Private-Subnet' to Private Subnet: $private_subnet_id"
+
+# Create Internet Gateway
+igw_id=$(aws ec2 create-internet-gateway --query "InternetGateway.InternetGatewayId" --output text)
+echo "Created Internet Gateway: $igw_id"
+
+# Tag the Internet Gateway
+aws ec2 create-tags --resources $igw_id --tags Key=Name,Value="${VPC_NAME}-IGW"
+echo "Assigned Name '${VPC_NAME}-IGW' to Internet Gateway: $igw_id"
+
+# Attach Internet Gateway to VPC
+aws ec2 attach-internet-gateway --vpc-id $vpc_id --internet-gateway-id $igw_id
+echo "Attached Internet Gateway: $igw_id to VPC: $vpc_id"
+
+# Create Route Table for Public Subnet
+public_rt_id=$(aws ec2 create-route-table --vpc-id $vpc_id --query "RouteTable.RouteTableId" --output text)
+echo "Created Route Table: $public_rt_id"
+
+# Tag the Route Table
+aws ec2 create-tags --resources $public_rt_id --tags Key=Name,Value="${VPC_NAME}-Public-RT"
+echo "Assigned Name '${VPC_NAME}-Public-RT' to Route Table: $public_rt_id"
+
+# Add Route to Internet Gateway in Public Route Table
+aws ec2 create-route --route-table-id $public_rt_id --destination-cidr-block 0.0.0.0/0 --gateway-id $igw_id
+echo "Added Route to Internet Gateway in Route Table: $public_rt_id"
+
+# Associate Route Table with Public Subnet
+aws ec2 associate-route-table --route-table-id $public_rt_id --subnet-id $public_subnet_id
+echo "Associated Route Table: $public_rt_id with Public Subnet: $public_subnet_id"
+
+# Allocate Elastic IP for NAT Gateway
+eip_alloc_id=$(aws ec2 allocate-address --domain vpc --query "AllocationId" --output text)
+echo "Allocated Elastic IP for NAT Gateway: $eip_alloc_id"
+
+# Create NAT Gateway in the Public Subnet
+nat_gw_id=$(aws ec2 create-nat-gateway --subnet-id $public_subnet_id --allocation-id $eip_alloc_id --query "NatGateway.NatGatewayId" --output text)
+echo "Created NAT Gateway: $nat_gw_id"
+
+# Wait until the NAT Gateway is available
+echo "Waiting for NAT Gateway to become available..."
+aws ec2 wait nat-gateway-available --nat-gateway-ids $nat_gw_id
+echo "NAT Gateway is now available: $nat_gw_id"
+
+# Create Route Table for Private Subnet
+private_rt_id=$(aws ec2 create-route-table --vpc-id $vpc_id --query "RouteTable.RouteTableId" --output text)
+echo "Created Route Table: $private_rt_id"
+
+# Tag the Private Route Table
+aws ec2 create-tags --resources $private_rt_id --tags Key=Name,Value="${VPC_NAME}-Private-RT"
+echo "Assigned Name '${VPC_NAME}-Private-RT' to Route Table: $private_rt_id"
+
+# Add Route to NAT Gateway in Private Route Table
+aws ec2 create-route --route-table-id $private_rt_id --destination-cidr-block 0.0.0.0/0 --nat-gateway-id $nat_gw_id
+echo "Added Route to NAT Gateway in Route Table: $private_rt_id"
+
+# Associate Route Table with Private Subnet
+aws ec2 associate-route-table --route-table-id $private_rt_id --subnet-id $private_subnet_id
+echo "Associated Route Table: $private_rt_id with Private Subnet: $private_subnet_id"
+
+echo "VPC setup with Public and Private Subnets, Internet Gateway, and NAT Gateway completed successfully!"
+
+
